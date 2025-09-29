@@ -309,12 +309,14 @@ def bench_inter_chunk(
             dt_ms = (time.time() - t0) * 1000.0
             times_ms.append(dt_ms)
 
-        avg = sum(times_ms) / len(times_ms)
-        p50 = percentile(times_ms, 0.50)
-        p90 = percentile(times_ms, 0.90)
-        p99 = percentile(times_ms, 0.99)
-
         out_frames = chunk_frames // 8
+
+        avg = sum(times_ms) / len(times_ms)
+        avg_itl = (sum(times_ms) / len(times_ms)) / out_frames
+        p50_itl = percentile(times_ms, 0.50) / out_frames
+        p90_itl = percentile(times_ms, 0.90) / out_frames
+        p99_itl = percentile(times_ms, 0.99) / out_frames
+
         fps_per_stream = (out_frames) / (avg / 1000.0)
         audio_ms = chunk_frames * 10.0
         rtf = (avg) / audio_ms
@@ -323,10 +325,10 @@ def bench_inter_chunk(
                 batch_size=bs,
                 steps=steps,
                 chunk_frames=chunk_frames,
-                avg_ms=avg,
-                p50_ms=p50,
-                p90_ms=p90,
-                p99_ms=p99,
+                avg_ms=avg_itl,
+                p50_ms=p50_itl,
+                p90_ms=p90_itl,
+                p99_ms=p99_itl,
                 fps_per_stream=fps_per_stream,
                 rtf=rtf,
             )
@@ -405,7 +407,6 @@ def main():
             f"p50={r['p50_ms']:7.3f}  p90={r['p90_ms']:7.3f}  p99={r['p99_ms']:7.3f}  "
             f"fps/stream={r['fps_per_stream']:7.2f}  RTF={r['rtf']:.3f}"
         )
-    print("Note: RTF<1.0 means faster than real-time per stream (per batch element).")
 
 
 if __name__ == "__main__":
