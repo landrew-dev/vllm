@@ -5,11 +5,14 @@ import argparse
 import math
 import os
 import time
+import csv
 from typing import List
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+import matplotlib.pyplot as plt
 
 
 
@@ -366,6 +369,13 @@ def main():
     parser.add_argument("--amp", type=str, default="none", choices=["none", "bf16", "fp16"])
     parser.add_argument("--compile", action="store_true")
     parser.add_argument("--seed", type=int, default=1234)
+    # Layer sweep controls
+    parser.add_argument("--layers-min", type=int, default=1, help="min layers (inclusive) to sweep")
+    parser.add_argument("--layers-max", type=int, default=20, help="max layers (inclusive) to sweep")
+    parser.add_argument("--layers-step", type=int, default=1, help="step when sweeping layers")
+    # Outputs
+    parser.add_argument("--save-plot", type=str, default="itl_vs_layers_no_conv.png")
+    parser.add_argument("--save-csv", type=str, default="itl_vs_layers_no_conv.csv")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -375,38 +385,90 @@ def main():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
 
-    model = StreamingFastConformer(
-        feat_dim=args.feat_dim,
-        d_model=args.d_model,
-        n_layers=args.layers,
-        n_heads=args.heads,
-        k_conv=args.k_conv,
-        attn_win_left=args.attn_win_left,
-        ff_mult=args.ff_mult,
-    ).to(args.device).eval()
+    # Build layer sweep
+    layers_list = list(range(args.layers_min, args.layers_max + 1, max(1, args.layers_step)))
+    batch_sizes = list(args.batch_sizes)
 
-    model = maybe_compile(model, args.compile)
-
-    results = bench_inter_chunk(
-        model=model,
-        device=args.device,
-        batch_sizes=tuple(args.batch_sizes),
-        steps=args.steps,
-        chunk_frames=args.chunk_frames,
-        feat_dim=args.feat_dim,
-        warmup_steps=args.warmup_steps,
-        amp=args.amp,
+    print("\n=== Streaming Fast-Conformer Inter-Chunk Latency (ICL) — Layers Sweep ===")
+    print(
+        f"Model cfg: d_model={args.d_model}, heads={args.heads}, k_conv={args.k_conv}, Wl={args.attn_win_left}, ff_mult={args.ff_mult}"
     )
+    print(
+        f"Chunk: {args.chunk_frames} mel frames @10ms hop (~{args.chunk_frames*10} ms audio), steps={args.steps}, device={args.device}, amp={args.amp}"
+    )
+    print(f"Sweeping layers: {layers_list[0]}..{layers_list[-1]} (step {max(1, args.layers_step)}) | batch sizes {batch_sizes}")
 
-    print("\n=== Streaming Fast-Conformer Inter-Chunk Latency (ICL) ===")
-    print(f"Model: d_model={args.d_model}, layers={args.layers}, heads={args.heads}, k_conv={args.k_conv}, Wl={args.attn_win_left}")
-    print(f"Chunk: {args.chunk_frames} mel frames @10ms hop (~{args.chunk_frames*10} ms audio), steps={args.steps}")
-    for r in results:
-        print(
-            f"BS={r['batch_size']:>2} | avg={r['avg_ms']:7.3f} ms  "
-            f"p50={r['p50_ms']:7.3f}  p90={r['p90_ms']:7.3f}  p99={r['p99_ms']:7.3f}  "
-            f"fps/stream={r['fps_per_stream']:7.2f}  RTF={r['rtf']:.3f}"
+    sweep_results = {int(bs): {"layers": [], "avg_itl_ms": []} for bs in batch_sizes}
+
+    for L in layers_list:
+        model = StreamingFastConformer(
+            feat_dim=args.feat_dim,
+            d_model=args.d_model,
+            n_layers=L,
+            n_heads=args.heads,
+            k_conv=args.k_conv,
+            attn_win_left=args.attn_win_left,
+            ff_mult=args.ff_mult,
+        ).to(args.device).eval()
+
+        model = maybe_compile(model, args.compile)
+
+        results_L = bench_inter_chunk(
+            model=model,
+            device=args.device,
+            batch_sizes=tuple(batch_sizes),
+            steps=args.steps,
+            chunk_frames=args.chunk_frames,
+            feat_dim=args.feat_dim,
+            warmup_steps=args.warmup_steps,
+            amp=args.amp,
         )
+
+        row_bits = []
+        for r in results_L:
+            bs = int(r["batch_size"])
+            sweep_results[bs]["layers"].append(L)
+            sweep_results[bs]["avg_itl_ms"].append(float(r["avg_ms"]))
+            row_bits.append(f"BS={bs}: {r['avg_ms']:7.3f} ms/it")
+        print(f"layers={L:>2} | " + "  ".join(row_bits))
+
+        del model
+        if args.device.startswith("cuda"):
+            torch.cuda.empty_cache()
+
+    try:
+        with open(args.save_csv, "w", newline="") as f:
+            writer = csv.writer(f)
+            bs_sorted = sorted(sweep_results.keys())
+            header = ["layers"] + [f"avg_itl_ms_bs{bs}" for bs in bs_sorted]
+            writer.writerow(header)
+            base_layers = sweep_results[bs_sorted[0]]["layers"]
+            for i, L in enumerate(base_layers):
+                row = [L] + [f"{sweep_results[bs]['avg_itl_ms'][i]:.6f}" for bs in bs_sorted]
+                writer.writerow(row)
+        print(f"Saved CSV to {args.save_csv}")
+    except Exception as e:
+        print(f"Warning: failed to save CSV at {args.save_csv}: {e}")
+
+    plt.figure(figsize=(8, 5))
+    bs_sorted = sorted(sweep_results.keys())
+    for bs in bs_sorted:
+        plt.plot(
+            sweep_results[bs]["layers"],
+            sweep_results[bs]["avg_itl_ms"],
+            marker="o",
+            label=f"BS={bs}",
+        )
+    plt.xlabel("# layers")
+    plt.ylabel("Avg inter-token latency (ms)")
+    plt.title(
+        f"Fast-Conformer ICL vs Layers | d_model={args.d_model}, heads={args.heads}, chunk={args.chunk_frames}"
+    )
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(args.save_plot)
+    print(f"Saved plot to {args.save_plot}")
 
 
 if __name__ == "__main__":
