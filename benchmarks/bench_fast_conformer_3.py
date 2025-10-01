@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Streaming Fast-Conformer inter-chunk latency benchmark (PyTorch, self-contained)
+# Streaming Fast-Conformer inter-token latency benchmark (PyTorch, self-contained)
 
 import argparse
 import math
@@ -279,55 +279,58 @@ class StreamingFastConformer(nn.Module):
 
 
 @torch.inference_mode()
-def bench_inter_chunk(
+def bench_inter_token(
     model: StreamingFastConformer,
     device: str,
     batch_sizes=(1, 8, 32),
     steps=100,
-    chunk_frames=40,
+    context_frames=560,  # 70 encoder frames * 8 = 560 audio frames
+    token_frames=8,      # 1 encoder frame = 8 audio frames
     feat_dim=80,
     warmup_steps=10,
     amp="none",
 ):
+    print(f"benchmarking: context_frames={context_frames}, token_frames={token_frames}, feat_dim={feat_dim}, warmup_steps={warmup_steps}, amp={amp}")
     results = []
     for bs in batch_sizes:
         model.reset_stream(bs)
-        feats = torch.randn(bs, chunk_frames, feat_dim, device=device)
-
+        # Fill up the context: pass in 70 encoder frames worth of audio (560 audio frames)
+        context_feats = torch.randn(bs, context_frames, feat_dim, device=device)
+        with maybe_autocast(device, amp):
+            _ = model.forward_chunk(context_feats)
+        # Now, benchmark a single forward pass with full cache for a single output frame (8 audio frames)
+        token_feats = torch.randn(bs, token_frames, feat_dim, device=device)
+        # Warmup
         with maybe_autocast(device, amp):
             for _ in range(warmup_steps):
-                _ = model.forward_chunk(feats)
+                _ = model.forward_chunk(token_feats)
         if device.startswith("cuda"):
             torch.cuda.synchronize()
-
         times_ms = []
         for _ in range(steps):
             if device.startswith("cuda"):
                 torch.cuda.synchronize()
             t0 = time.time()
             with maybe_autocast(device, amp):
-                _ = model.forward_chunk(feats)
+                _ = model.forward_chunk(token_feats)
             if device.startswith("cuda"):
                 torch.cuda.synchronize()
             dt_ms = (time.time() - t0) * 1000.0
             times_ms.append(dt_ms)
-
-        out_frames = chunk_frames // 8
-
-        avg = sum(times_ms) / len(times_ms)
-        avg_itl = (sum(times_ms) / len(times_ms)) / out_frames
-        p50_itl = percentile(times_ms, 0.50) / out_frames
-        p90_itl = percentile(times_ms, 0.90) / out_frames
-        p99_itl = percentile(times_ms, 0.99) / out_frames
-
-        fps_per_stream = (out_frames) / (avg / 1000.0)
-        audio_ms = chunk_frames * 10.0
-        rtf = (avg) / audio_ms
+        # Each forward produces 1 encoder frame (token), so ITL is just the time per forward
+        avg_itl = sum(times_ms) / len(times_ms)
+        p50_itl = percentile(times_ms, 0.50)
+        p90_itl = percentile(times_ms, 0.90)
+        p99_itl = percentile(times_ms, 0.99)
+        fps_per_stream = 1000.0 / avg_itl
+        audio_ms = token_frames * 10.0
+        rtf = avg_itl / audio_ms
         results.append(
             dict(
                 batch_size=bs,
                 steps=steps,
-                chunk_frames=chunk_frames,
+                context_frames=context_frames,
+                token_frames=token_frames,
                 avg_ms=avg_itl,
                 p50_ms=p50_itl,
                 p90_ms=p90_itl,
@@ -362,7 +365,6 @@ def main():
     parser.add_argument("--k-conv", type=int, default=9)
     parser.add_argument("--ff-mult", type=int, default=4)
     parser.add_argument("--attn-win-left", type=int, default=70)
-    parser.add_argument("--chunk-frames", type=int, default=40, help="mel frames per chunk (10ms hop ⇒ 400ms default)")
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--warmup-steps", type=int, default=10)
     parser.add_argument("--batch-sizes", type=int, nargs="+", default=[1, 8, 32])
@@ -374,8 +376,8 @@ def main():
     parser.add_argument("--layers-max", type=int, default=20, help="max layers (inclusive) to sweep")
     parser.add_argument("--layers-step", type=int, default=1, help="step when sweeping layers")
     # Outputs
-    parser.add_argument("--save-plot", type=str, default="itl_vs_layers_no_conv.png")
-    parser.add_argument("--save-csv", type=str, default="itl_vs_layers_no_conv.csv")
+    parser.add_argument("--save-plot", type=str, default="itl_vs_layers.png")
+    parser.add_argument("--save-csv", type=str, default="itl_vs_layers.csv")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -389,12 +391,12 @@ def main():
     layers_list = list(range(args.layers_min, args.layers_max + 1, max(1, args.layers_step)))
     batch_sizes = list(args.batch_sizes)
 
-    print("\n=== Streaming Fast-Conformer Inter-Chunk Latency (ICL) — Layers Sweep ===")
+    print("\n=== Streaming Fast-Conformer Inter-Token Latency (ITL) — Layers Sweep ===")
     print(
         f"Model cfg: d_model={args.d_model}, heads={args.heads}, k_conv={args.k_conv}, Wl={args.attn_win_left}, ff_mult={args.ff_mult}"
     )
     print(
-        f"Chunk: {args.chunk_frames} mel frames @10ms hop (~{args.chunk_frames*10} ms audio), steps={args.steps}, device={args.device}, amp={args.amp}"
+        f"Context: 70 encoder frames (560 audio frames), Token: 1 encoder frame (8 audio frames), steps={args.steps}, device={args.device}, amp={args.amp}"
     )
     print(f"Sweeping layers: {layers_list[0]}..{layers_list[-1]} (step {max(1, args.layers_step)}) | batch sizes {batch_sizes}")
 
@@ -413,12 +415,13 @@ def main():
 
         model = maybe_compile(model, args.compile)
 
-        results_L = bench_inter_chunk(
+        results_L = bench_inter_token(
             model=model,
             device=args.device,
             batch_sizes=tuple(batch_sizes),
             steps=args.steps,
-            chunk_frames=args.chunk_frames,
+            context_frames=70 * 8,
+            token_frames=8,
             feat_dim=args.feat_dim,
             warmup_steps=args.warmup_steps,
             amp=args.amp,
@@ -462,7 +465,7 @@ def main():
     plt.xlabel("# layers")
     plt.ylabel("Avg inter-token latency (ms)")
     plt.title(
-        f"Fast-Conformer ICL vs Layers | d_model={args.d_model}, heads={args.heads}, chunk={args.chunk_frames}"
+        f"Fast-Conformer ITL vs Layers | d_model={args.d_model}, heads={args.heads}, context=70, token=1"
     )
     plt.grid(True, alpha=0.3)
     plt.legend()
