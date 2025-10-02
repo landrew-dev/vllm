@@ -355,6 +355,9 @@ def maybe_compile(model: nn.Module, use_compile: bool):
             pass
     return model
 
+def count_parameters(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
@@ -413,6 +416,8 @@ def main():
             ff_mult=args.ff_mult,
         ).to(args.device).eval()
 
+        num_params = count_parameters(model)
+
         model = maybe_compile(model, args.compile)
 
         results_L = bench_inter_token(
@@ -433,7 +438,7 @@ def main():
             sweep_results[bs]["layers"].append(L)
             sweep_results[bs]["avg_itl_ms"].append(float(r["avg_ms"]))
             row_bits.append(f"BS={bs}: {r['avg_ms']:7.3f} ms/it")
-        print(f"layers={L:>2} | " + "  ".join(row_bits))
+        print(f"layers={L:>2} | " + "  ".join(row_bits) + f" | params={num_params:,}")
 
         del model
         if args.device.startswith("cuda"):
