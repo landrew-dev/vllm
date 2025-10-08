@@ -228,8 +228,11 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         # Multi-modal data support
         self.mm_registry = MULTIMODAL_REGISTRY
         self.uses_mrope = model_config.uses_mrope
-        self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
-            model_config)
+        # self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
+            # model_config)
+
+        # TODO: hack for fastconformer
+        self.supports_mm_inputs = True
 
         if self.model_config.is_encoder_decoder:
             # Maximum length of the encoder input, only for encoder-decoder
@@ -2989,6 +2992,11 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                     inputs_embeds=inputs_embeds,
                     **model_kwargs,
                 )
+
+                # TODO: remove fastconformer hack
+                print(f"resetting stream for fastconformer with num_tokens: {num_tokens}")
+                self.model.reset_stream(num_tokens // 8)
+                print(f"stream reset for fastconformer with num_tokens: {num_tokens}")
 
             if self.use_aux_hidden_state_outputs:
                 hidden_states, _ = outputs

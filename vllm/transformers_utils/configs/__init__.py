@@ -28,6 +28,7 @@ from vllm.transformers_utils.configs.ovis import OvisConfig
 from vllm.transformers_utils.configs.qwen3_next import Qwen3NextConfig
 from vllm.transformers_utils.configs.radio import RadioConfig
 from vllm.transformers_utils.configs.speculators.base import SpeculatorsConfig
+from vllm.transformers_utils.configs.fastconformer import FastConformerConfig
 from vllm.transformers_utils.configs.step3_vl import (Step3TextConfig,
                                                       Step3VisionEncoderConfig,
                                                       Step3VLConfig)
@@ -38,6 +39,7 @@ __all__ = [
     "DeepseekVLV2Config",
     "EAGLEConfig",
     "RWConfig",
+    "FastConformerConfig",
     "JAISConfig",
     "MedusaConfig",
     "MiDashengLMConfig",

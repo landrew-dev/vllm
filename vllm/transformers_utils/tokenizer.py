@@ -222,6 +222,8 @@ def get_tokenizer(
                 **kwargs,
             )
         except ValueError as e:
+            # TODO: remove this hack for fastconformer
+            return None
             # If the error pertains to the tokenizer class not existing or not
             # currently being imported,
             # suggest using the --trust-remote-code flag.

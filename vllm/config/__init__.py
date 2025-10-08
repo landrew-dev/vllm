@@ -1325,7 +1325,11 @@ class ModelConfig:
         return getattr(self.hf_text_config, "vocab_size", 0)
 
     def get_hidden_size(self) -> int:
-        return getattr(self.hf_text_config, "hidden_size", 0)
+        # TODO: remove "feat_dim" hack for fastconformer
+        # once we know what weight format we want / are using.
+        if hasattr(self.hf_text_config, "hidden_size"):
+            return getattr(self.hf_text_config, "hidden_size", 0)
+        return getattr(self.hf_text_config, "feat_dim", 0)
 
     @property
     def is_deepseek_mla(self) -> bool:

@@ -71,6 +71,8 @@ _TEXT_GENERATION_MODELS = {
     "Exaone4ForCausalLM": ("exaone4", "Exaone4ForCausalLM"),
     "FalconForCausalLM": ("falcon", "FalconForCausalLM"),
     "Fairseq2LlamaForCausalLM": ("fairseq2_llama", "Fairseq2LlamaForCausalLM"),
+    # TODO: tmp in TextGenerationModels for generation-like decoding
+    "StreamingFastConformer": ("fast_conformer", "StreamingFastConformer"),
     "GemmaForCausalLM": ("gemma", "GemmaForCausalLM"),
     "Gemma2ForCausalLM": ("gemma2", "Gemma2ForCausalLM"),
     "Gemma3ForCausalLM": ("gemma3", "Gemma3ForCausalLM"),
@@ -742,6 +744,7 @@ class _ModelRegistry:
         model_config: ModelConfig,
     ) -> bool:
         model_cls, _ = self.inspect_model_cls(architectures, model_config)
+        print(f"model_cls: {model_cls}")
         return model_cls.is_text_generation_model
 
     def is_pooling_model(

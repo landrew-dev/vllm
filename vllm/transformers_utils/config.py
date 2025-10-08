@@ -68,6 +68,7 @@ _CONFIG_REGISTRY: dict[str, type[PretrainedConfig]] = LazyConfigDict(
     Llama_Nemotron_Nano_VL="Nemotron_Nano_VL_Config",
     RefinedWeb="RWConfig",  # For tiiuae/falcon-40b(-instruct)
     RefinedWebModel="RWConfig",  # For tiiuae/falcon-7b(-instruct)
+    fastconformer="FastConformerConfig",
     jais="JAISConfig",
     mlp_speculator="MLPSpeculatorConfig",
     medusa="MedusaConfig",

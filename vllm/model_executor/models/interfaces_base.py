@@ -124,7 +124,7 @@ def is_text_generation_model(
            TypeIs[VllmModelForTextGeneration]]:
     if not is_vllm_model(model):
         return False
-
+    
     if isinstance(model, type):
         return isinstance(model, VllmModelForTextGeneration)
 
