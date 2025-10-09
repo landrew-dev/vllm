@@ -102,6 +102,8 @@ class KVCacheManager:
         self.prefix_cache_stats = PrefixCacheStats() if log_stats else None
 
         self.block_size: Optional[int] = None
+        # TODO: hack for fastconformer remove later
+        self.enable_caching = False
         if self.enable_caching:
             assert len(
                 set(g.kv_cache_spec.block_size

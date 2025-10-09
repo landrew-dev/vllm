@@ -324,41 +324,44 @@ class StreamingFastConformer(nn.Module):
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         assert inputs_embeds is not None
-        # inputs_embeds: [N, D]
-        # positions: [N//8]
-        if positions.shape[0] != inputs_embeds.shape[0] // 8:
-            # TODO: remove this hack
-            positions = positions[:inputs_embeds.shape[0] // 8]
-        # assume pure decode for simplicity, for now
-        x = self.sub.forward_stream(inputs_embeds, positions)
-        for b in self.blocks:
-            x = b.forward_stream(x, positions)
-        return self.ln_out(x)
+        # inputs_embeds: [N, D * 8]
+        # positions: [N]
+        # # assume pure decode for simplicity, for now
+        # x = self.sub.forward_stream(inputs_embeds, positions)
+        # for b in self.blocks:
+        #     x = b.forward_stream(x, positions)
+        # return self.ln_out(x)
+
+        D = inputs_embeds.shape[1] // 8
+        return inputs_embeds[:, :D]
 
     def compute_logits(
         self,
         hidden_states: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> Optional[torch.Tensor]:
-        """Return `None` if TP rank > 0."""
-        x = self.forward_chunk(hidden_states)
-        for b in self.blocks:
-            x = b.forward_stream(x)
-        return self.ln_out(x)
+        # x = self.forward_chunk(hidden_states)
+        # for b in self.blocks:
+        #     x = b.forward_stream(x)
+        # return self.ln_out(x)
+
+        D = hidden_states.shape[1] // 8
+        return hidden_states[:, :D]
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
-        if not isinstance(weights, dict):
-            weights = dict(weights)
+        pass
+        # if not isinstance(weights, dict):
+        #     weights = dict(weights)
 
-        state_dict = {}
-        for k, v in weights.items():
-            if k.startswith("module."):
-                state_dict[k[7:]] = v
-            else:
-                state_dict[k] = v
+        # state_dict = {}
+        # for k, v in weights.items():
+        #     if k.startswith("module."):
+        #         state_dict[k[7:]] = v
+        #     else:
+        #         state_dict[k] = v
 
-        missing, unexpected = self.load_state_dict(state_dict, strict=False)
-        if missing:
-            print(f"Warning: Missing keys when loading weights: {missing}")
-        if unexpected:
-            print(f"Warning: Unexpected keys when loading weights: {unexpected}")
+        # missing, unexpected = self.load_state_dict(state_dict, strict=False)
+        # if missing:
+        #     print(f"Warning: Missing keys when loading weights: {missing}")
+        # if unexpected:
+        #     print(f"Warning: Unexpected keys when loading weights: {unexpected}")
