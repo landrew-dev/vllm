@@ -1,6 +1,7 @@
 import time
 import argparse
 from vllm import LLM, SamplingParams
+from vllm.config import HiddenStatesMode
 
 def _get_avg_itl(outs):
     """
@@ -38,9 +39,10 @@ def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_tria
     ]
 
     print("Loading GPT-2 model in vLLM...")
-    llm = LLM(model="gpt2")
+    # llm = LLM(model="gpt2", enforce_eager=True, hidden_states_mode=HiddenStatesMode.LAST_LAYER)
+    llm = LLM(model="gpt2", enforce_eager=True)
 
-    for batch_size in batch_sizes:
+    for batch_size in [1]:
         print(f"\nBenchmarking batch size: {batch_size}")
         prompts = [dummy_prompts[i % len(dummy_prompts)] for i in range(batch_size)]
         sampling_params = SamplingParams(max_tokens=num_tokens)
@@ -51,15 +53,16 @@ def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_tria
         latencies = []
         for _ in range(num_trials):
             r = llm.generate(prompts, sampling_params)
-            latencies.append(_get_avg_itl(r))
+            print(f"output: {r}")
+            # latencies.append(_get_avg_itl(r))
 
-        avg_latency = sum(latencies) / len(latencies)
-        p50 = sorted(latencies)[len(latencies)//2]
-        p90 = sorted(latencies)[int(len(latencies)*0.9)]
-        print(f"Batch size {batch_size}:")
-        print(f"  Avg inter-token latency: {avg_latency*1000:.2f} ms")
-        print(f"  P50 inter-token latency: {p50*1000:.2f} ms")
-        print(f"  P90 inter-token latency: {p90*1000:.2f} ms")
+        # avg_latency = sum(latencies) / len(latencies)
+        # p50 = sorted(latencies)[len(latencies)//2]
+        # p90 = sorted(latencies)[int(len(latencies)*0.9)]
+        # print(f"Batch size {batch_size}:")
+        # print(f"  Avg inter-token latency: {avg_latency*1000:.2f} ms")
+        # print(f"  P50 inter-token latency: {p50*1000:.2f} ms")
+        # print(f"  P90 inter-token latency: {p90*1000:.2f} ms")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark GPT-2 inter-token latency with vLLM.")

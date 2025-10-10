@@ -144,6 +144,7 @@ class DraftTokenIds:
 EMPTY_MODEL_RUNNER_OUTPUT = ModelRunnerOutput(req_ids=[],
                                               req_id_to_index={},
                                               sampled_token_ids=[],
+                                              hidden_states=[],
                                               logprobs=None,
                                               prompt_logprobs_dict={},
                                               pooler_output=[],
