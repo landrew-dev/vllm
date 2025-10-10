@@ -16,6 +16,7 @@ from threading import Thread
 from typing import Any, Callable, Optional, TypeVar, Union
 
 import msgspec.msgpack
+import torch
 import zmq
 import zmq.asyncio
 
@@ -181,6 +182,12 @@ class EngineCoreClient(ABC):
         raise NotImplementedError
 
     async def add_request_async(self, request: EngineCoreRequest) -> None:
+        raise NotImplementedError
+
+    async def append_request_async(self, request_id: str, new_chunk: torch.Tensor) -> None:
+        raise NotImplementedError
+
+    async def finish_request_async(self, request_id: str) -> None:
         raise NotImplementedError
 
     async def profile_async(self, is_start: bool = True) -> None:
@@ -902,6 +909,14 @@ class AsyncMPClient(MPClient):
     async def add_request_async(self, request: EngineCoreRequest) -> None:
         request.client_index = self.client_index
         await self._send_input(EngineCoreRequestType.ADD, request)
+        self._ensure_output_queue_task()
+
+    async def append_request_async(self, request_id: str, new_chunk: torch.Tensor) -> None:
+        await self._send_input(EngineCoreRequestType.APPEND, (request_id, new_chunk))
+        self._ensure_output_queue_task()
+
+    async def finish_request_async(self, request_id: str) -> None:
+        await self._send_input(EngineCoreRequestType.FINISH, request_id)
         self._ensure_output_queue_task()
 
     async def abort_requests_async(self, request_ids: list[str]) -> None:

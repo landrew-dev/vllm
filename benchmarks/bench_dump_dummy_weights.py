@@ -92,7 +92,8 @@ def main():
     os.makedirs(dummy_model_dir, exist_ok=True)
 
     weights_path = os.path.join(dummy_model_dir, "pytorch_model.pt")
-    torch.save(model.state_dict(), weights_path)
+    # torch.save(model.state_dict(), weights_path)
+    torch.save({}, weights_path)
 
     config = {
         "architectures": ["StreamingFastConformer"],

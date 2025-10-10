@@ -15,6 +15,8 @@ from vllm.v1.engine import (EngineCoreEvent, EngineCoreEventType,
 from vllm.v1.structured_output.request import StructuredOutputRequest
 from vllm.v1.utils import ConstantList
 
+import torch
+
 if TYPE_CHECKING:
     from vllm.lora.request import LoRARequest
     from vllm.v1.core.kv_cache_utils import BlockHash
@@ -39,6 +41,7 @@ class Request:
         trace_headers: Optional[Mapping[str, str]] = None,
         block_hasher: Optional[Callable[["Request"],
                                         list["BlockHash"]]] = None,
+        is_streaming: Optional[bool] = False,
     ) -> None:
         self.request_id = request_id
         self.client_index = client_index
@@ -107,6 +110,10 @@ class Request:
         # indicates that the output is corrupted
         self.num_nans_in_logits = 0
 
+        self.is_streaming = is_streaming
+        if self.is_streaming:
+            self.streaming_finished = False
+
         self.block_hashes: list[BlockHash] = []
         self.get_hash_new_full_blocks: Optional[Callable[
             [], list[BlockHash]]] = None
@@ -136,6 +143,7 @@ class Request:
             priority=request.priority,
             trace_headers=request.trace_headers,
             block_hasher=block_hasher,
+            is_streaming=request.is_streaming,
         )
 
     def append_output_token_ids(
@@ -151,6 +159,14 @@ class Request:
 
         if self.get_hash_new_full_blocks is not None:
             self.block_hashes.extend(self.get_hash_new_full_blocks())
+
+    def append_streaming_input(self, chunk: torch.Tensor) -> None:
+        # TODO: figure out if this is correct
+        self._output_token_ids.extend(chunk)
+        self._all_token_ids.extend(chunk)
+
+    def set_streaming_finished(self) -> None:
+        self.streaming_finished = True
 
     @property
     def is_output_corrupted(self) -> bool:
@@ -198,6 +214,7 @@ class RequestStatus(enum.IntEnum):
     WAITING = enum.auto()
     WAITING_FOR_FSM = enum.auto()
     WAITING_FOR_REMOTE_KVS = enum.auto()
+    WAITING_FOR_STREAMING_INPUT = enum.auto()
     RUNNING = enum.auto()
     PREEMPTED = enum.auto()
     # Note: anything after PREEMPTED will be considered

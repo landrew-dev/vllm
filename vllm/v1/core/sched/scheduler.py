@@ -34,6 +34,7 @@ from vllm.v1.outputs import DraftTokenIds, KVConnectorOutput, ModelRunnerOutput
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.spec_decode.metrics import SpecDecodingStats
 from vllm.v1.structured_output import StructuredOutputManager
+import torch
 
 logger = init_logger(__name__)
 
@@ -216,6 +217,15 @@ class Scheduler(SchedulerInterface):
                 num_new_tokens = (
                     self.scheduler_config.long_prefill_token_threshold)
             num_new_tokens = min(num_new_tokens, token_budget)
+
+            if request.streaming_request and num_new_tokens == 0:
+                self.running.pop(req_index)
+                if not request.streaming_finished:
+                    request.status = RequestStatus.WAITING_FOR_STREAMING_INPUT
+                else:
+                    request.status = RequestStatus.FINISHED_STOPPED
+                    self._free_request(request)
+                continue
 
             # Make sure the input position does not exceed the max model len.
             # This is necessary when using spec decoding.
@@ -512,7 +522,7 @@ class Scheduler(SchedulerInterface):
                                          scheduled_timestamp)
                 if request.status == RequestStatus.WAITING:
                     scheduled_new_reqs.append(request)
-                elif request.status == RequestStatus.PREEMPTED:
+                elif request.status == RequestStatus.PREEMPTED or request.status == RequestStatus.WAITING_FOR_STREAMING_INPUT:
                     scheduled_resumed_reqs.append(request)
                 else:
                     raise RuntimeError(
@@ -1095,6 +1105,39 @@ class Scheduler(SchedulerInterface):
         self.requests[request.request_id] = request
         if self.log_stats:
             request.record_event(EngineCoreEventType.QUEUED)
+
+    # for streaming requests only
+    def append_request(self, request_id: str, chunk: torch.Tensor) -> None:
+        req = self.requests.get(request_id)
+        if req is None:
+            raise ValueError(f"request {request_id} not found")
+        if not req.is_streaming:
+            raise ValueError(f"request {request_id} is not a streaming request")
+        req.append_streaming_input(chunk)
+
+        # if the request is pending, move to waiting queue
+        # the request status is automatically updated when scheduled
+        if req.status == RequestStatus.WAITING_FOR_STREAMING_INPUT:
+            # TODO: is priority relevant here?
+            self.waiting.add_request(req)
+
+        # otherwise, the request is already running and should continue consuming input
+
+    # for streaming requests only 
+    def finish_request(self, request_id: str) -> None:
+        req = self.requests.get(request_id)
+        if req is None:
+            raise ValueError(f"request {request_id} not found")
+        if not req.is_streaming:
+            raise ValueError(f"request {request_id} is not a streaming request")
+        req.set_streaming_finished()
+
+        # if the request is not in any scheduler queues, manually free the request
+        if req.status == RequestStatus.WAITING_FOR_STREAMING_INPUT:
+            req.status = RequestStatus.FINISHED_STOPPED
+            self._free_request(req)
+
+        # otherwise, allow the scheduler to consume any remaining input
 
     def finish_requests(
         self,

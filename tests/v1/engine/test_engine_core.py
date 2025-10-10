@@ -43,6 +43,7 @@ def make_request() -> EngineCoreRequest:
         lora_request=None,
         cache_salt=None,
         data_parallel_rank=None,
+        is_streaming=None,
     )
 
 

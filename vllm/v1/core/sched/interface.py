@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Optional, Union
 
+import torch
+
 if TYPE_CHECKING:
     from vllm.distributed.kv_transfer.kv_connector.v1 import KVConnectorBase_V1
     from vllm.v1.core.sched.output import SchedulerOutput
@@ -76,6 +78,16 @@ class SchedulerInterface(ABC):
         Args:
             request: The new request being added.
         """
+        raise NotImplementedError
+
+    @abstractmethod
+    def append_request(self, req_id: str, chunk: torch.Tensor) -> None:
+        """Append input to existing streaming requests."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def finish_request(self, req_id: str) -> None:
+        """Finish an existing streaming request."""
         raise NotImplementedError
 
     @abstractmethod

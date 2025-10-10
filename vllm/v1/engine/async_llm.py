@@ -273,6 +273,7 @@ class AsyncLLM(EngineClient):
         trace_headers: Optional[Mapping[str, str]] = None,
         priority: int = 0,
         data_parallel_rank: Optional[int] = None,
+        is_streaming: Optional[bool] = None,
     ) -> RequestOutputCollector:
         """Add new request to the AsyncLLM."""
 
@@ -287,7 +288,7 @@ class AsyncLLM(EngineClient):
         # Convert Input --> Request.
         prompt_str, request = self.processor.process_inputs(
             request_id, prompt, params, arrival_time, lora_request,
-            tokenization_kwargs, trace_headers, priority, data_parallel_rank)
+            tokenization_kwargs, trace_headers, priority, data_parallel_rank, is_streaming)
 
         if is_pooling or params.n == 1:
             await self._add_request(request, prompt_str, None, 0, queue)
@@ -319,6 +320,25 @@ class AsyncLLM(EngineClient):
         if self.log_requests:
             logger.info("Added request %s.", request.request_id)
 
+    async def append(self, request_id: str, new_chunk: torch.Tensor) -> None:
+        """Append new inputs to an existing streaming request."""
+
+        if self.errored:
+            raise EngineDeadError()
+
+        await self.engine_core.append_request_async(request_id, new_chunk)
+
+        if self.log_requests:
+            logger.info("Appended request %s.", request_id)
+
+    async def finish(self, request_id: str) -> None:
+        """Finish an existing streaming request."""
+
+        if self.errored:
+            raise EngineDeadError()
+
+        await self.engine_core.finish_request_async(request_id)
+
     # TODO: we should support multiple prompts in one call, as you
     # can do with LLM.generate. So that for multi-prompt completion
     # requests we don't need to send multiple messages to core proc,
@@ -333,6 +353,7 @@ class AsyncLLM(EngineClient):
         trace_headers: Optional[Mapping[str, str]] = None,
         priority: int = 0,
         data_parallel_rank: Optional[int] = None,
+        is_streaming: Optional[bool] = None,
     ) -> AsyncGenerator[RequestOutput, None]:
         """
         Main function called by the API server to kick off a request
@@ -380,6 +401,7 @@ class AsyncLLM(EngineClient):
                 priority=priority,
                 tokenization_kwargs=tokenization_kwargs,
                 data_parallel_rank=data_parallel_rank,
+                is_streaming=is_streaming,
             )
 
             # The output_handler task pushes items into the queue.
@@ -585,66 +607,6 @@ class AsyncLLM(EngineClient):
             if self.log_requests:
                 logger.info("Request %s failed.", request_id)
             raise EngineGenerateError() from e
-
-    async def add_audio_frames_new_request(self, frames: "torch.Tensor") -> str:
-        request_id = f"audio-{self._audio_next_id}"
-        self._audio_next_id += 1
-        await self._audio_start_request(request_id)
-        await self.add_audio_frames(request_id, frames)
-        return request_id
-
-    async def add_audio_frames(self, request_id: str, frames: "torch.Tensor") -> None:
-        state = self._audio_requests.get(request_id)
-        if state is None:
-            raise KeyError(f"Unknown audio request: {request_id}")
-        await state["in_q"].put(frames)
-
-    async def finalize_audio_request(self, request_id: str) -> None:
-        state = self._audio_requests.get(request_id)
-        if state is None:
-            return
-        await state["in_q"].put(None)
-
-    async def stream_audio(self, request_id: str) -> AsyncGenerator["torch.Tensor", None]:
-        state = self._audio_requests.get(request_id)
-        if state is None:
-            raise KeyError(f"Unknown audio request: {request_id}")
-        out_q: asyncio.Queue = state["out_q"]
-        while True:
-            item = await out_q.get()
-            if item is None:
-                break
-            yield item
-
-    async def _audio_start_request(self, request_id: str) -> None:
-        if request_id in self._audio_requests:
-            raise KeyError(f"Audio request already exists: {request_id}")
-        in_q: asyncio.Queue = asyncio.Queue()
-        out_q: asyncio.Queue = asyncio.Queue()
-        state = {"in_q": in_q, "out_q": out_q, "worker": None}
-        self._audio_requests[request_id] = state
-        state["worker"] = asyncio.create_task(self._audio_worker(request_id))
-
-    async def _audio_worker(self, request_id: str) -> None:
-        state = self._audio_requests[request_id]
-        in_q: asyncio.Queue = state["in_q"]
-        out_q: asyncio.Queue = state["out_q"]
-        try:
-            while True:
-                item = await in_q.get()
-                if item is None:
-                    break
-                x = item
-                assert hasattr(x, "dim") and x.dim() == 3, "frames must be (B, T, H)"
-                B, T, H = x.shape
-                T8 = T // 8
-                if T8 > 0:
-                    x_ds = x[:, : T8 * 8, :].reshape(B, T8, 8, H).mean(dim=2)
-                    await out_q.put(x_ds)
-        finally:
-            await out_q.put(None)
-            self._audio_requests.pop(request_id, None)
-
 
     async def get_vllm_config(self) -> VllmConfig:
         return self.vllm_config

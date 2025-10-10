@@ -56,6 +56,7 @@ class EngineCoreRequest(
     lora_request: Optional[LoRARequest]
     cache_salt: Optional[str]
     data_parallel_rank: Optional[int]
+    is_streaming: Optional[bool]
 
     # Index of the client, used to ensure outputs are sent back to the same
     # client for this request when scaling out the front-end.
@@ -184,6 +185,8 @@ class EngineCoreRequestType(enum.Enum):
     UTILITY = b'\x03'
     # Sentinel used within EngineCoreProc.
     EXECUTOR_FAILED = b'\x04'
+    APPEND = b'\x05'
+    FINISH = b'\x06'
 
 
 class ReconfigureDistributedRequest(msgspec.Struct):

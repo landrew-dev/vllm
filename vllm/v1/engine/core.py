@@ -15,6 +15,7 @@ from logging import DEBUG
 from typing import Any, Callable, Optional, TypeVar, Union
 
 import msgspec
+import torch
 import zmq
 
 from vllm.config import ParallelConfig, VllmConfig
@@ -245,6 +246,14 @@ class EngineCore:
                            "Disabling KVTransfer for this request.")
 
         self.scheduler.add_request(request)
+
+    def append_request(self, req_id: str, chunk: torch.Tensor):
+        """Append input to an existing streaming request in the scheduler."""
+        self.scheduler.append_request(req_id, chunk)
+
+    def finish_request(self, req_id: str):
+        """Finish an existing streaming request in the scheduler."""
+        self.scheduler.finish_request(req_id)
 
     def abort_requests(self, request_ids: list[str]):
         """Abort requests from the scheduler."""
@@ -771,6 +780,12 @@ class EngineCoreProc(EngineCore):
         if request_type == EngineCoreRequestType.ADD:
             req, request_wave = request
             self.add_request(req, request_wave)
+        elif request_type == EngineCoreRequestType.APPEND:
+            req_id, chunk = request
+            self.append_request(req_id, chunk)
+        elif request_type == EngineCoreRequestType.FINISH:
+            req_id = request
+            self.finish_request(req_id)
         elif request_type == EngineCoreRequestType.ABORT:
             self.abort_requests(request)
         elif request_type == EngineCoreRequestType.UTILITY:
