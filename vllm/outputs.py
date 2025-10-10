@@ -43,6 +43,7 @@ class CompletionOutput:
     index: int
     text: str
     token_ids: GenericSequence[int]
+    hidden_states: Optional[torch.Tensor]
     cumulative_logprob: Optional[float]
     logprobs: Optional[SampleLogprobs]
     finish_reason: Optional[str] = None

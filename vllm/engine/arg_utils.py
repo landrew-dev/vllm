@@ -26,7 +26,7 @@ from vllm.config import (BlockSize, CacheConfig, CacheDType, CompilationConfig,
                          DetailedTraceModules, Device, DeviceConfig,
                          DistributedExecutorBackend, EPLBConfig,
                          GuidedDecodingBackend, HfOverrides, KVEventsConfig,
-                         KVTransferConfig, LoadConfig, LogprobsMode,
+                         KVTransferConfig, LoadConfig, LogprobsMode, HiddenStatesMode,
                          LoRAConfig, MambaDType, MMEncoderTPMode, ModelConfig,
                          ModelDType, ModelImpl, ObservabilityConfig,
                          ParallelConfig, PoolerConfig, PrefixCachingHashAlgo,
@@ -359,6 +359,7 @@ class EngineArgs:
     max_num_seqs: Optional[int] = SchedulerConfig.max_num_seqs
     max_logprobs: int = ModelConfig.max_logprobs
     logprobs_mode: LogprobsMode = ModelConfig.logprobs_mode
+    hidden_states_mode: HiddenStatesMode = ModelConfig.hidden_states_mode
     disable_log_stats: bool = False
     revision: Optional[str] = ModelConfig.revision
     code_revision: Optional[str] = ModelConfig.code_revision
@@ -548,6 +549,9 @@ class EngineArgs:
         model_group.add_argument("--logprobs-mode",
                                  choices=[f.value for f in LogprobsMode],
                                  **model_kwargs["logprobs_mode"])
+        model_group.add_argument("--hidden-states-mode",
+                                 choices=[f.value for f in HiddenStatesMode],
+                                 **model_kwargs["hidden_states_mode"])
         model_group.add_argument("--disable-sliding-window",
                                  **model_kwargs["disable_sliding_window"])
         model_group.add_argument("--disable-cascade-attn",
@@ -1011,6 +1015,7 @@ class EngineArgs:
             max_seq_len_to_capture=self.max_seq_len_to_capture,
             max_logprobs=self.max_logprobs,
             logprobs_mode=self.logprobs_mode,
+            hidden_states_mode=self.hidden_states_mode,
             disable_sliding_window=self.disable_sliding_window,
             disable_cascade_attn=self.disable_cascade_attn,
             skip_tokenizer_init=self.skip_tokenizer_init,

@@ -8,6 +8,7 @@ from typing import Any, Optional, Union, cast
 
 import torch
 
+from vllm.config import HiddenStatesMode
 from vllm.outputs import (CompletionOutput, PoolingOutput,
                           PoolingRequestOutput, RequestOutput)
 from vllm.sampling_params import RequestOutputKind
@@ -179,9 +180,11 @@ class RequestState:
     def make_request_output(
         self,
         new_token_ids: list[int],
+        new_hidden_states: Optional[torch.Tensor],
         pooling_output: Optional[torch.Tensor],
         finish_reason: Optional[FinishReason],
         stop_reason: Union[int, str, None],
+        hidden_states_mode: HiddenStatesMode,
         kv_transfer_params: Optional[dict[str, Any]] = None,
     ) -> Optional[Union[RequestOutput, PoolingRequestOutput]]:
 
@@ -198,8 +201,8 @@ class RequestState:
                 request_id, [self._new_pooling_output(pooling_output)],
                 finished)
 
-        output = self._new_completion_output(new_token_ids, finish_reason,
-                                             stop_reason)
+        output = self._new_completion_output(new_token_ids, new_hidden_states, finish_reason,
+                                             stop_reason, hidden_states_mode)
 
         if self.parent_req is None:
             outputs = [output]
@@ -250,14 +253,27 @@ class RequestState:
     def _new_completion_output(
         self,
         token_ids: list[int],
+        new_hidden_states: Optional[torch.Tensor],
         finish_reason: Optional[FinishReason],
         stop_reason: Union[int, str, None],
+        hidden_states_mode: HiddenStatesMode,
     ) -> CompletionOutput:
 
         assert self.detokenizer is not None
         assert self.logprobs_processor is not None
         finished = finish_reason is not None
         delta = self.output_kind == RequestOutputKind.DELTA
+
+        if hidden_states_mode != HiddenStatesMode.NONE:
+            return CompletionOutput(
+                index=self.request_index,
+                text="",
+                token_ids=None,
+                logprobs=None,
+                hidden_states=new_hidden_states,
+                cumulative_logprob=None,
+                finish_reason=str(finish_reason) if finished else None,
+                stop_reason=stop_reason if finished else None)
 
         # Prepare text and token_ids, based on delta mode
         text = self.detokenizer.get_next_output_text(finished, delta)
@@ -289,13 +305,14 @@ class RequestState:
 class OutputProcessor:
     """Process EngineCoreOutputs into RequestOutputs."""
 
-    def __init__(self, tokenizer: AnyTokenizer, log_stats: bool):
+    def __init__(self, tokenizer: AnyTokenizer, log_stats: bool, hidden_states_mode: HiddenStatesMode):
         self.log_stats = log_stats
         self.tokenizer = tokenizer
         self.request_states: dict[str, RequestState] = {}
         self.parent_requests: dict[str, ParentRequest] = {}
         self.lora_states = LoRARequestStates()
         self.tracer: Optional[Tracer] = None
+        self.hidden_states_mode = hidden_states_mode
 
     def get_num_unfinished_requests(self):
         return len(self.request_states)
@@ -323,7 +340,7 @@ class OutputProcessor:
                 # Produce final abort output.
                 if req_state.queue is not None and (
                         request_output := req_state.make_request_output(
-                            [], None, FinishReason.ABORT, None, None)):
+                            [], None, None, FinishReason.ABORT, None, HiddenStatesMode.NONE, None)):
                     req_state.queue.put(request_output)
             elif parent := self.parent_requests.get(request_id):
                 # Abort children prior to removing the parent.
@@ -402,6 +419,7 @@ class OutputProcessor:
                                            iteration_stats)
 
             new_token_ids = engine_core_output.new_token_ids
+            new_hidden_states = engine_core_output.new_hidden_states
             pooling_output = engine_core_output.pooling_output
             finish_reason = engine_core_output.finish_reason
             stop_reason = engine_core_output.stop_reason
@@ -409,7 +427,7 @@ class OutputProcessor:
             req_state.num_cached_tokens = engine_core_output.num_cached_tokens
             req_state.is_prefilling = False
 
-            if pooling_output is None:
+            if pooling_output is None and self.hidden_states_mode == HiddenStatesMode.NONE:
                 assert req_state.detokenizer is not None
                 assert req_state.logprobs_processor is not None
                 # 2) Detokenize the token ids into text and perform stop checks.
@@ -426,7 +444,7 @@ class OutputProcessor:
 
             # 4) Create and handle RequestOutput objects.
             if request_output := req_state.make_request_output(
-                    new_token_ids, pooling_output, finish_reason, stop_reason,
+                    new_token_ids, new_hidden_states, pooling_output, finish_reason, stop_reason, self.hidden_states_mode,
                     kv_transfer_params):
                 if req_state.queue is not None:
                     # AsyncLLM: put into queue for handling by generate().

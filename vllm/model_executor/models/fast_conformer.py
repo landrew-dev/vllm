@@ -340,13 +340,7 @@ class StreamingFastConformer(nn.Module):
         hidden_states: torch.Tensor,
         sampling_metadata: SamplingMetadata,
     ) -> Optional[torch.Tensor]:
-        # x = self.forward_chunk(hidden_states)
-        # for b in self.blocks:
-        #     x = b.forward_stream(x)
-        # return self.ln_out(x)
-
-        D = hidden_states.shape[1] // 8
-        return hidden_states[:, :D]
+        raise Exception("returning logits is not a supported operation for StreamingFastConformer")
 
     def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]):
         pass

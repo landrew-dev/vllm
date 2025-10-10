@@ -25,7 +25,7 @@ from vllm.compilation.counter import compilation_counter
 from vllm.compilation.cuda_graph import CUDAGraphWrapper
 from vllm.compilation.monitor import set_cudagraph_capturing_enabled
 from vllm.config import (CompilationLevel, CUDAGraphMode, VllmConfig,
-                         get_layers_from_vllm_config, update_config)
+                         get_layers_from_vllm_config, update_config, HiddenStatesMode)
 from vllm.distributed.eplb.eplb_state import EplbState
 from vllm.distributed.kv_transfer import (get_kv_transfer_group,
                                           has_kv_transfer_group)
@@ -199,6 +199,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 cache_config.cache_dtype]
 
         self.is_pooling_model = (model_config.runner_type == 'pooling')
+        self.hidden_states_mode = model_config.hidden_states_mode
         self.is_multimodal_raw_input_only_model = (
             model_config.is_multimodal_raw_input_only_model)
 
@@ -2090,6 +2091,20 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             invalid_req_indices,
         )
 
+    def _bookkeeping_sync_no_logits(
+        self, scheduler_output: "SchedulerOutput",
+    ) -> tuple[
+            list[str],
+            dict[str, int],
+    ]:
+        req_ids_output_copy = self.input_batch.req_ids.copy()
+        req_id_to_index_output_copy = \
+            self.input_batch.req_id_to_index.copy()
+        return (
+            req_ids_output_copy,
+            req_id_to_index_output_copy,
+        )
+
     @torch.inference_mode()
     def execute_model(
         self,
@@ -2177,6 +2192,42 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 # Common case.
                 hidden_states = model_output
                 aux_hidden_states = None
+
+            if self.hidden_states_mode == HiddenStatesMode.LAST_LAYER:
+                req_ids_output_copy = self.input_batch.req_ids.copy()
+                req_id_to_index_output_copy = self.input_batch.req_id_to_index.copy()
+
+                num_reqs = self.input_batch.num_reqs
+                query_start_loc_np = self.query_start_loc.np[:num_reqs]
+                per_request_hidden_states: list[torch.Tensor] = []
+                for i in range(num_reqs):
+                    start = int(query_start_loc_np[i].item())
+                    length = int(num_scheduled_tokens_np[i].item())
+                    per_request_hidden_states.append(
+                        hidden_states[start:start + length]
+                    )
+
+                output = ModelRunnerOutput(
+                    req_ids=req_ids_output_copy,
+                    req_id_to_index=req_id_to_index_output_copy,
+                    sampled_token_ids=[],
+                    hidden_states=per_request_hidden_states,
+                    logprobs=[],
+                    prompt_logprobs_dict={},
+                    pooler_output=[],
+                    kv_connector_output=kv_connector_output,
+                    num_nans_in_logits=None,
+                )
+
+                if not self.use_async_scheduling:
+                    return output
+
+                return AsyncGPUModelRunnerOutput(
+                    model_runner_output=output,
+                    sampled_token_ids=None,
+                    invalid_req_indices=None,
+                    async_output_copy_stream=self.async_output_copy_stream,
+                )
 
             if not self.broadcast_pp_output:
                 # Common case.
@@ -2266,6 +2317,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             req_ids=req_ids_output_copy,
             req_id_to_index=req_id_to_index_output_copy,
             sampled_token_ids=valid_sampled_token_ids,
+            hidden_states=[],
             logprobs=logprobs_lists,
             prompt_logprobs_dict=prompt_logprobs_dict,
             pooler_output=[],
@@ -2993,11 +3045,6 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                     **model_kwargs,
                 )
 
-                # TODO: remove fastconformer hack
-                print(f"resetting stream for fastconformer with num_tokens: {num_tokens}")
-                self.model.reset_stream(num_tokens // 8)
-                print(f"stream reset for fastconformer with num_tokens: {num_tokens}")
-
             if self.use_aux_hidden_state_outputs:
                 hidden_states, _ = outputs
             else:
@@ -3216,7 +3263,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         if get_pp_group().is_last_rank:
             if self.is_pooling_model:
                 output = self._dummy_pooler_run(hidden_states)
-            else:
+            elif self.hidden_states_mode != HiddenStatesMode.NONE:
                 output = self._dummy_sampler_run(last_hidden_states)
         else:
             output = None

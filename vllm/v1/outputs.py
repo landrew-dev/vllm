@@ -95,6 +95,9 @@ class ModelRunnerOutput:
     # each request due to speculative/jump decoding.
     sampled_token_ids: list[list[int]]
 
+    # [num_reqs]
+    hidden_states: Optional[list[torch.Tensor]]
+
     # [num_reqs, max_num_logprobs + 1]
     # [num_reqs, max_num_logprobs + 1]
     # [num_reqs]

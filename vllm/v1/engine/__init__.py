@@ -104,6 +104,7 @@ class EngineCoreOutput(
 
     request_id: str
     new_token_ids: list[int]
+    new_hidden_states: Optional[torch.Tensor] = None
 
     new_logprobs: Optional[LogprobsLists] = None
     new_prompt_logprobs_tensors: Optional[LogprobsTensors] = None

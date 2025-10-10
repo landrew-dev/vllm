@@ -254,6 +254,9 @@ class LogprobsMode(enum.Enum):
     PROCESSED_LOGITS = "processed_logits"
     PROCESSED_LOGPROBS = "processed_logprobs"
 
+class HiddenStatesMode(enum.Enum):
+    NONE = "none"
+    LAST_LAYER = "last_layer"
 
 @config
 @dataclass(config=ConfigDict(arbitrary_types_allowed=True))
@@ -364,6 +367,12 @@ class ModelConfig:
     Processed means the values after applying all processors, including
     temperature and top_k/top_p.
     """
+    hidden_states_mode: HiddenStatesMode = HiddenStatesMode.NONE
+    """Indicates whether to return the hidden states of the model.
+    Supported mode:
+    1) none, 2) last_layer.
+    None means that logits are sampled into tokens and the hidden states are not returned.
+    Last layer means that the hidden states of the final layer are returned."""
     disable_sliding_window: bool = False
     """Whether to disable sliding window. If True, we will disable the sliding
     window functionality of the model, capping to sliding window size. If the

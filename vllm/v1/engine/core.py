@@ -165,6 +165,8 @@ class EngineCore:
         self.step_fn = (self.step if self.batch_queue is None else
                         self.step_with_batch_queue)
 
+        self.hidden_states_mode = vllm_config.model_config.hidden_states_mode
+
     def _initialize_kv_caches(
             self, vllm_config: VllmConfig) -> tuple[int, int, KVCacheConfig]:
         start = time.time()
@@ -298,7 +300,7 @@ class EngineCore:
             self.model_executor.execute_model,  # type: ignore
             scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
-            scheduler_output, model_output)  # type: ignore
+            scheduler_output, model_output, self.hidden_states_mode)  # type: ignore
 
         return (engine_core_outputs,
                 scheduler_output.total_num_scheduled_tokens > 0)
@@ -360,7 +362,7 @@ class EngineCore:
             lambda _: future.result(), scheduler_output)
 
         engine_core_outputs = self.scheduler.update_from_output(
-            scheduler_output, model_output)
+            scheduler_output, model_output, self.hidden_states_mode)
 
         return engine_core_outputs, model_executed
 

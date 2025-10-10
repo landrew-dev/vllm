@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from vllm.v1.metrics.stats import SchedulerStats
     from vllm.v1.outputs import DraftTokenIds, ModelRunnerOutput
     from vllm.v1.request import Request, RequestStatus
+    from vllm.config import HiddenStatesMode
 
 
 class SchedulerInterface(ABC):
@@ -48,6 +49,7 @@ class SchedulerInterface(ABC):
         self,
         scheduler_output: "SchedulerOutput",
         model_runner_output: "ModelRunnerOutput",
+        hidden_states_mode: "HiddenStatesMode",
     ) -> dict[int, "EngineCoreOutputs"]:
         """Update the scheduler state based on the model runner output.
 

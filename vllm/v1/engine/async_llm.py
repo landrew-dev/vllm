@@ -123,7 +123,8 @@ class AsyncLLM(EngineClient):
 
         # OutputProcessor (converts EngineCoreOutputs --> RequestOutput).
         self.output_processor = OutputProcessor(self.tokenizer,
-                                                log_stats=self.log_stats)
+                                                log_stats=self.log_stats,
+                                                hidden_states_mode=vllm_config.model_config.hidden_states_mode)
         if self.observability_config.otlp_traces_endpoint is not None:
             tracer = init_tracer(
                 "vllm.llm_engine",
