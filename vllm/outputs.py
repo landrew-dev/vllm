@@ -58,6 +58,7 @@ class CompletionOutput:
                 f"text={self.text!r}, "
                 f"token_ids={self.token_ids}, "
                 f"cumulative_logprob={self.cumulative_logprob}, "
+                f"{'hidden_states=..., ' if self.hidden_states is not None else ''}"
                 f"logprobs={self.logprobs}, "
                 f"finish_reason={self.finish_reason}, "
                 f"stop_reason={self.stop_reason})")

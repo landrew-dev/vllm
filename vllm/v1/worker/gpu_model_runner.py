@@ -229,11 +229,11 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         # Multi-modal data support
         self.mm_registry = MULTIMODAL_REGISTRY
         self.uses_mrope = model_config.uses_mrope
-        # self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
-            # model_config)
+        self.supports_mm_inputs = self.mm_registry.supports_multimodal_inputs(
+            model_config)
 
         # TODO: hack for fastconformer
-        self.supports_mm_inputs = True
+        # self.supports_mm_inputs = True
 
         if self.model_config.is_encoder_decoder:
             # Maximum length of the encoder input, only for encoder-decoder
@@ -2091,20 +2091,6 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
             invalid_req_indices,
         )
 
-    def _bookkeeping_sync_no_logits(
-        self, scheduler_output: "SchedulerOutput",
-    ) -> tuple[
-            list[str],
-            dict[str, int],
-    ]:
-        req_ids_output_copy = self.input_batch.req_ids.copy()
-        req_id_to_index_output_copy = \
-            self.input_batch.req_id_to_index.copy()
-        return (
-            req_ids_output_copy,
-            req_id_to_index_output_copy,
-        )
-
     @torch.inference_mode()
     def execute_model(
         self,
@@ -3265,6 +3251,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 output = self._dummy_pooler_run(hidden_states)
             elif self.hidden_states_mode != HiddenStatesMode.NONE:
                 output = self._dummy_sampler_run(last_hidden_states)
+            else:
+                output = hidden_states
         else:
             output = None
         self._sync_device()

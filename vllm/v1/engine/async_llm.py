@@ -178,10 +178,6 @@ class AsyncLLM(EngineClient):
         else:
             self.profiler = None
 
-        # audio state
-        self._audio_requests = {}
-        self._audio_next_id = 0
-
     @classmethod
     @deprecate_kwargs(
         "disable_log_requests",

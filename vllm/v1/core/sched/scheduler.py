@@ -218,7 +218,7 @@ class Scheduler(SchedulerInterface):
                     self.scheduler_config.long_prefill_token_threshold)
             num_new_tokens = min(num_new_tokens, token_budget)
 
-            if request.streaming_request and num_new_tokens == 0:
+            if request.is_streaming and num_new_tokens == 0:
                 self.running.pop(req_index)
                 if not request.streaming_finished:
                     request.status = RequestStatus.WAITING_FOR_STREAMING_INPUT
@@ -930,20 +930,36 @@ class Scheduler(SchedulerInterface):
             req_index = model_runner_output.req_id_to_index[req_id]
             new_hidden_states = model_runner_output.hidden_states[req_index]
 
-            if new_hidden_states:
-                outputs[request.client_index].append(
-                    EngineCoreOutput(
-                        request_id=req_id,
-                        new_token_ids=None,
-                        new_hidden_states=new_hidden_states,
-                        finish_reason=request.get_finished_reason(),
-                        pooling_output=None,
-                        stop_reason=request.stop_reason,
-                        events=request.take_events(),
-                        kv_transfer_params=None,
-                        trace_headers=request.trace_headers,
-                        num_cached_tokens=request.num_cached_tokens,
-                    ))
+            stopped = False
+            kv_transfer_params = None
+            status_before_stop = request.status
+
+            if len(new_hidden_states) > 0:
+                new_token_ids = [0 for _ in range(len(new_hidden_states))]
+                new_token_ids, stopped = self._update_request_with_output(
+                    request, new_token_ids)
+
+            if stopped:
+                kv_transfer_params = self._free_request(request)
+                if status_before_stop == RequestStatus.RUNNING:
+                    stopped_running_reqs.add(request)
+                else:
+                    stopped_preempted_reqs.add(request)
+
+
+            outputs[request.client_index].append(
+                EngineCoreOutput(
+                    request_id=req_id,
+                    new_token_ids=new_token_ids,
+                    new_hidden_states=new_hidden_states,
+                    finish_reason=request.get_finished_reason(),
+                    pooling_output=None,
+                    stop_reason=request.stop_reason,
+                    events=request.take_events(),
+                    kv_transfer_params=kv_transfer_params,
+                    trace_headers=request.trace_headers,
+                    num_cached_tokens=request.num_cached_tokens,
+                ))
 
         return self._finalize_engine_core_outputs(
             outputs, stopped_running_reqs, stopped_preempted_reqs, model_runner_output)
@@ -957,7 +973,7 @@ class Scheduler(SchedulerInterface):
     ) -> dict[int, EngineCoreOutputs]:
         if hidden_states_mode != HiddenStatesMode.NONE:
             return self._update_from_output_with_hidden_states(
-                scheduler_output, model_runner_output, hidden_states_mode)
+                scheduler_output, model_runner_output)
 
         sampled_token_ids = model_runner_output.sampled_token_ids
         logprobs = model_runner_output.logprobs

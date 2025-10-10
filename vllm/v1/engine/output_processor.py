@@ -211,7 +211,6 @@ class RequestState:
                 request_id, output)
             if not outputs:
                 return None
-
         return self._new_request_output(request_id, outputs, finished,
                                         kv_transfer_params)
 
@@ -268,7 +267,7 @@ class RequestState:
             return CompletionOutput(
                 index=self.request_index,
                 text="",
-                token_ids=None,
+                token_ids=token_ids,
                 logprobs=None,
                 hidden_states=new_hidden_states,
                 cumulative_logprob=None,
@@ -290,6 +289,7 @@ class RequestState:
             text=text,
             token_ids=token_ids,
             logprobs=logprobs,
+            hidden_states=new_hidden_states,
             cumulative_logprob=self.logprobs_processor.cumulative_logprob,
             finish_reason=str(finish_reason) if finished else None,
             stop_reason=stop_reason if finished else None)

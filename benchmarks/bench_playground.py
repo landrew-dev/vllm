@@ -39,8 +39,8 @@ def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_tria
     ]
 
     print("Loading GPT-2 model in vLLM...")
-    # llm = LLM(model="gpt2", enforce_eager=True, hidden_states_mode=HiddenStatesMode.LAST_LAYER)
-    llm = LLM(model="gpt2", enforce_eager=True)
+    llm = LLM(model="gpt2", enforce_eager=True, hidden_states_mode=HiddenStatesMode.LAST_LAYER)
+    # llm = LLM(model="gpt2", enforce_eager=True)
 
     for batch_size in [1]:
         print(f"\nBenchmarking batch size: {batch_size}")
@@ -53,7 +53,8 @@ def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_tria
         latencies = []
         for _ in range(num_trials):
             r = llm.generate(prompts, sampling_params)
-            print(f"output: {r}")
+            print(f"full output: {r}")
+            print(f"output hidden states: {r[0].outputs[0].hidden_states.shape}")
             # latencies.append(_get_avg_itl(r))
 
         # avg_latency = sum(latencies) / len(latencies)
