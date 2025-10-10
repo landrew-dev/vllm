@@ -935,7 +935,7 @@ class Scheduler(SchedulerInterface):
             status_before_stop = request.status
 
             if len(new_hidden_states) > 0:
-                new_token_ids = [0 for _ in range(len(new_hidden_states))]
+                new_token_ids = [0]
                 new_token_ids, stopped = self._update_request_with_output(
                     request, new_token_ids)
 

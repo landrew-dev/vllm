@@ -24,7 +24,7 @@ def _get_avg_itl(outs):
         return 0.0
 
 
-def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_trials=16):
+def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=9, num_warmup=4, num_trials=16):
     dummy_prompts = [
         "Once upon a time,",
         "In a world where AI",
@@ -45,7 +45,7 @@ def benchmark_gpt2(batch_sizes=[1, 8, 32], num_tokens=32, num_warmup=4, num_tria
     for batch_size in [1]:
         print(f"\nBenchmarking batch size: {batch_size}")
         prompts = [dummy_prompts[i % len(dummy_prompts)] for i in range(batch_size)]
-        sampling_params = SamplingParams(max_tokens=num_tokens)
+        sampling_params = SamplingParams(max_tokens=2)
 
         for _ in range(num_warmup):
             _ = llm.generate(prompts, sampling_params)
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Benchmark GPT-2 inter-token latency with vLLM.")
     parser.add_argument("--batch_sizes", type=int, nargs="+", default=[1, 8, 32],
                         help="Batch sizes to benchmark.")
-    parser.add_argument("--num_tokens", type=int, default=32,
+    parser.add_argument("--num_tokens", type=int, default=9,
                         help="Number of tokens to generate per prompt.")
     parser.add_argument("--num_warmup", type=int, default=4,
                         help="Number of warmup runs.")

@@ -264,6 +264,9 @@ class RequestState:
         delta = self.output_kind == RequestOutputKind.DELTA
 
         if hidden_states_mode != HiddenStatesMode.NONE:
+            if not delta:
+                new_hidden_states = self.detokenizer.output_hidden_states
+                token_ids = self.detokenizer.output_token_ids
             return CompletionOutput(
                 index=self.request_index,
                 text="",
@@ -427,20 +430,25 @@ class OutputProcessor:
             req_state.num_cached_tokens = engine_core_output.num_cached_tokens
             req_state.is_prefilling = False
 
-            if pooling_output is None and self.hidden_states_mode == HiddenStatesMode.NONE:
-                assert req_state.detokenizer is not None
-                assert req_state.logprobs_processor is not None
-                # 2) Detokenize the token ids into text and perform stop checks.
-                stop_string = req_state.detokenizer.update(
-                    new_token_ids, finish_reason == FinishReason.STOP)
-                if stop_string:
-                    finish_reason = FinishReason.STOP
-                    stop_reason = stop_string
+            if pooling_output is None:
+                if self.hidden_states_mode == HiddenStatesMode.NONE:
+                    assert req_state.detokenizer is not None
+                    assert req_state.logprobs_processor is not None
+                    # 2) Detokenize the token ids into text and perform stop checks.
+                    stop_string = req_state.detokenizer.update(
+                        new_token_ids, finish_reason == FinishReason.STOP)
+                    if stop_string:
+                        finish_reason = FinishReason.STOP
+                        stop_reason = stop_string
 
-                # 3) Compute sample and prompt logprobs for request,
-                # if required.
-                req_state.logprobs_processor.update_from_output(
-                    engine_core_output)
+                    # 3) Compute sample and prompt logprobs for request,
+                    # if required.
+                    req_state.logprobs_processor.update_from_output(
+                        engine_core_output)
+                else:
+                    assert new_hidden_states is not None
+                    req_state.detokenizer.update(
+                        new_token_ids, finish_reason == FinishReason.STOP, new_hidden_states)
 
             # 4) Create and handle RequestOutput objects.
             if request_output := req_state.make_request_output(

@@ -15,6 +15,8 @@ from vllm.transformers_utils.detokenizer_utils import (
     AnyTokenizer, convert_prompt_ids_to_tokens, detokenize_incrementally)
 from vllm.v1.engine import EngineCoreRequest
 
+import torch
+
 logger = init_logger(__name__)
 
 # Only tokenizers >= 0.21.1 supports DecodeStream used for
@@ -30,14 +32,22 @@ class IncrementalDetokenizer:
 
     def __init__(self):
         self.token_ids: list[int] = []
+        self.hidden_states: torch.Tensor = torch.tensor([])
 
     @property
     def output_token_ids(self) -> list[int]:
         return self.token_ids
 
+    @property
+    def output_hidden_states(self) -> torch.Tensor:
+        return self.hidden_states
+
     def update(self, new_token_ids: list[int],
-               stop_terminated: bool) -> Optional[str]:
+               stop_terminated: bool,
+               new_hidden_states: Optional[torch.Tensor] = None) -> Optional[str]:
         self.token_ids.extend(new_token_ids)
+        if new_hidden_states is not None:
+            self.hidden_states = torch.cat([self.hidden_states, new_hidden_states])
         return None
 
     def get_next_output_text(self, finished: bool, delta: bool) -> str:
@@ -88,8 +98,13 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
         # Generation data
         self.output_text = ""
 
+    def _update_hidden_states(self, new_hidden_states: torch.Tensor):
+        self.hidden_states = torch.cat([self.hidden_states, new_hidden_states])
+        self.token_ids.append(0)
+
     def update(self, new_token_ids: list[int],
-               stop_terminated: bool) -> Optional[str]:
+               stop_terminated: bool,
+               new_hidden_states: Optional[torch.Tensor] = None) -> Optional[str]:
         """
         Update RequestState for the request_id by:
             1) Detokenize the new token ids incrementally.
@@ -97,9 +112,12 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
 
         Return matched stop string or None.
         """
-        if not new_token_ids:
+        if not new_token_ids and new_hidden_states is None:
             # Skip detokenization if no new token ids.
             return None
+
+        if new_hidden_states is not None:
+            return self._update_hidden_states(new_hidden_states)
 
         if stop_terminated and not self.include_stop_str_in_output:
             # If stop-terminated, exclude last token from detokenization
@@ -160,7 +178,7 @@ class BaseIncrementalDetokenizer(IncrementalDetokenizer, ABC):
             self._last_output_text_offset = length
             return self.output_text[last_offset:length]
         return ""
-
+    
 
 class FastIncrementalDetokenizer(BaseIncrementalDetokenizer):
 
